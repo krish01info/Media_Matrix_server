@@ -63,6 +63,10 @@ const schemas = {
     password: Joi.string().required(),
   }),
 
+  googleAuth: Joi.object({
+    id_token: Joi.string().required(),
+  }),
+
   refreshToken: Joi.object({
     refresh_token: Joi.string().required(),
   }),

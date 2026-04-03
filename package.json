@@ -8,7 +8,11 @@
     "dev": "nodemon src/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["news", "media", "api"],
+  "keywords": [
+    "news",
+    "media",
+    "api"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
@@ -20,6 +24,7 @@
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "express-rate-limit": "^7.5.0",
+    "google-auth-library": "^9.15.1",
     "helmet": "^8.1.0",
     "ioredis": "^5.6.1",
     "joi": "^17.13.3",

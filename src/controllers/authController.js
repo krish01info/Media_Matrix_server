@@ -2,6 +2,57 @@ const User = require('../models/User');
 const { pool } = require('../config/db');
 const { generateAccessToken, generateRefreshToken } = require('../middleware/auth');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+function buildUsernameCandidates(email, name) {
+  const localPart = String(email || '').split('@')[0] || 'user';
+  const fromEmail = localPart.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const fromName = String(name || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  const base = (fromName || fromEmail || 'user').slice(0, 24) || 'user';
+
+  return [
+    base,
+    `${base}${Date.now().toString().slice(-4)}`,
+    `${base}${Math.floor(1000 + Math.random() * 9000)}`,
+  ];
+}
+
+async function createGoogleUser({ email, name, avatarUrl }) {
+  const candidates = buildUsernameCandidates(email, name);
+  let createdUser = null;
+
+  for (const username of candidates) {
+    try {
+      createdUser = await User.create({
+        username,
+        email,
+        password: `${Math.random().toString(36)}${Date.now().toString(36)}`,
+      });
+      break;
+    } catch (err) {
+      if (err.code !== 'ER_DUP_ENTRY') {
+        throw err;
+      }
+    }
+  }
+
+  if (!createdUser) {
+    throw new Error('Could not create user for Google account');
+  }
+
+  if (avatarUrl) {
+    await User.updateProfile(createdUser.id, { avatar_url: avatarUrl });
+  }
+
+  await pool.execute(
+    'UPDATE users SET is_verified = 1 WHERE id = ?',
+    [createdUser.id]
+  );
+
+  return User.findById(createdUser.id);
+}
 
 const authController = {
   // POST /api/auth/register
@@ -87,6 +138,75 @@ const authController = {
         },
       });
     } catch (err) {
+      next(err);
+    }
+  },
+
+  // POST /api/auth/google
+  async googleAuth(req, res, next) {
+    try {
+      if (!process.env.GOOGLE_CLIENT_ID) {
+        return res.status(500).json({
+          success: false,
+          message: 'GOOGLE_CLIENT_ID is not configured',
+        });
+      }
+
+      const { id_token } = req.body;
+
+      const ticket = await googleClient.verifyIdToken({
+        idToken: id_token,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+
+      const payload = ticket.getPayload();
+      if (!payload || !payload.email) {
+        return res.status(401).json({ success: false, message: 'Invalid Google token' });
+      }
+
+      const email = payload.email.toLowerCase();
+      let user = await User.findByEmail(email);
+
+      if (!user) {
+        user = await createGoogleUser({
+          email,
+          name: payload.name,
+          avatarUrl: payload.picture,
+        });
+
+        await pool.execute(
+          'INSERT INTO user_preferences (user_id) VALUES (?)',
+          [user.id]
+        );
+      }
+
+      const accessToken = generateAccessToken(user);
+      const refreshToken = generateRefreshToken(user);
+
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await pool.execute(
+        'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
+        [user.id, refreshToken, expiresAt]
+      );
+
+      res.json({
+        success: true,
+        message: 'Google login successful',
+        data: {
+          user: {
+            uuid: user.uuid,
+            username: user.username,
+            email: user.email,
+            avatar_url: user.avatar_url || payload.picture || null,
+          },
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        },
+      });
+    } catch (err) {
+      if (err.message && err.message.toLowerCase().includes('token')) {
+        return res.status(401).json({ success: false, message: 'Invalid Google token' });
+      }
       next(err);
     }
   },
