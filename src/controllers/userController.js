@@ -14,8 +14,8 @@ const userController = {
       }
 
       // Get preferences
-      const [prefRows] = await pool.execute(
-        'SELECT * FROM user_preferences WHERE user_id = ?', [req.user.id]
+      const { rows: prefRows } = await pool.query(
+        'SELECT * FROM user_preferences WHERE user_id = $1', [req.user.id]
       );
 
       res.json({
@@ -110,8 +110,8 @@ const userController = {
   // GET /api/user/preferences
   async getPreferences(req, res, next) {
     try {
-      const [rows] = await pool.execute(
-        'SELECT * FROM user_preferences WHERE user_id = ?', [req.user.id]
+      const { rows } = await pool.query(
+        'SELECT * FROM user_preferences WHERE user_id = $1', [req.user.id]
       );
       res.json({ success: true, data: rows[0] || null });
     } catch (err) {
@@ -127,38 +127,39 @@ const userController = {
 
       const fields = [];
       const values = [];
+      let paramIndex = 1;
 
       if (preferred_categories !== undefined) {
-        fields.push('preferred_categories = ?');
+        fields.push(`preferred_categories = $${paramIndex++}`);
         values.push(JSON.stringify(preferred_categories));
       }
       if (preferred_regions !== undefined) {
-        fields.push('preferred_regions = ?');
+        fields.push(`preferred_regions = $${paramIndex++}`);
         values.push(JSON.stringify(preferred_regions));
       }
       if (preferred_sources !== undefined) {
-        fields.push('preferred_sources = ?');
+        fields.push(`preferred_sources = $${paramIndex++}`);
         values.push(JSON.stringify(preferred_sources));
       }
       if (notification_enabled !== undefined) {
-        fields.push('notification_enabled = ?');
-        values.push(notification_enabled ? 1 : 0);
+        fields.push(`notification_enabled = $${paramIndex++}`);
+        values.push(notification_enabled ? true : false);
       }
       if (high_quality_audio !== undefined) {
-        fields.push('high_quality_audio = ?');
-        values.push(high_quality_audio ? 1 : 0);
+        fields.push(`high_quality_audio = $${paramIndex++}`);
+        values.push(high_quality_audio ? true : false);
       }
 
       if (fields.length > 0) {
         values.push(req.user.id);
-        await pool.execute(
-          `UPDATE user_preferences SET ${fields.join(', ')} WHERE user_id = ?`,
+        await pool.query(
+          `UPDATE user_preferences SET ${fields.join(', ')} WHERE user_id = $${paramIndex}`,
           values
         );
       }
 
-      const [rows] = await pool.execute(
-        'SELECT * FROM user_preferences WHERE user_id = ?', [req.user.id]
+      const { rows } = await pool.query(
+        'SELECT * FROM user_preferences WHERE user_id = $1', [req.user.id]
       );
 
       res.json({ success: true, data: rows[0] });

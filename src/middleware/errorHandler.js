@@ -14,16 +14,16 @@ function errorHandler(err, req, res, next) {
     });
   }
 
-  // MySQL duplicate entry
-  if (err.code === 'ER_DUP_ENTRY') {
+  // PostgreSQL unique violation
+  if (err.code === '23505') {
     return res.status(409).json({
       success: false,
       message: 'Duplicate entry. This record already exists.',
     });
   }
 
-  // MySQL foreign key constraint
-  if (err.code === 'ER_NO_REFERENCED_ROW_2') {
+  // PostgreSQL foreign key violation
+  if (err.code === '23503') {
     return res.status(400).json({
       success: false,
       message: 'Referenced record does not exist.',

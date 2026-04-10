@@ -6,29 +6,32 @@ const Article = {
   async create(data) {
     const uuid = uuidv4();
     const slug = data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-    const [result] = await pool.execute(
+    const { rows } = await pool.query(
       `INSERT INTO articles (uuid, title, subtitle, slug, content, summary, image_url, thumbnail_url,
         category_id, source_id, reporter_id, truth_score, is_verified, is_featured, is_breaking,
         is_developing, is_live, is_morning_brief, published_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
+       RETURNING id`,
       [uuid, data.title, data.subtitle || null, slug, data.content, data.summary || null,
        data.image_url || null, data.thumbnail_url || null, data.category_id, data.source_id,
-       data.reporter_id || null, data.truth_score || 0, data.is_verified ? 1 : 0,
-       data.is_featured ? 1 : 0, data.is_breaking ? 1 : 0, data.is_developing ? 1 : 0,
-       data.is_live ? 1 : 0, data.is_morning_brief ? 1 : 0]
+       data.reporter_id || null, data.truth_score || 0, data.is_verified ? true : false,
+       data.is_featured ? true : false, data.is_breaking ? true : false, data.is_developing ? true : false,
+       data.is_live ? true : false, data.is_morning_brief ? true : false]
     );
-    const articleId = result.insertId;
+    const articleId = rows[0].id;
 
     // Insert tags
     if (data.tag_ids && data.tag_ids.length > 0) {
-      const tagValues = data.tag_ids.map(tid => [articleId, tid]);
-      await pool.query('INSERT INTO article_tags (article_id, tag_id) VALUES ?', [tagValues]);
+      for (const tid of data.tag_ids) {
+        await pool.query('INSERT INTO article_tags (article_id, tag_id) VALUES ($1, $2)', [articleId, tid]);
+      }
     }
 
     // Insert regions
     if (data.region_ids && data.region_ids.length > 0) {
-      const regionValues = data.region_ids.map(rid => [articleId, rid]);
-      await pool.query('INSERT INTO article_regions (article_id, region_id) VALUES ?', [regionValues]);
+      for (const rid of data.region_ids) {
+        await pool.query('INSERT INTO article_regions (article_id, region_id) VALUES ($1, $2)', [articleId, rid]);
+      }
     }
 
     return { id: articleId, uuid };
@@ -36,7 +39,7 @@ const Article = {
 
   // Get article by UUID (full detail)
   async findByUuid(uuid) {
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.*, c.name as category_name, c.slug as category_slug,
               s.name as source_name, s.short_name as source_short_name, s.logo_url as source_logo,
               s.trust_score as source_trust_score,
@@ -45,33 +48,33 @@ const Article = {
        JOIN categories c ON a.category_id = c.id
        JOIN sources s ON a.source_id = s.id
        LEFT JOIN reporters r ON a.reporter_id = r.id
-       WHERE a.uuid = ?`,
+       WHERE a.uuid = $1`,
       [uuid]
     );
     if (!rows[0]) return null;
 
     // Get tags
-    const [tags] = await pool.execute(
+    const tagResult = await pool.query(
       `SELECT t.id, t.name, t.slug FROM tags t
        JOIN article_tags at2 ON t.id = at2.tag_id
-       WHERE at2.article_id = ?`,
+       WHERE at2.article_id = $1`,
       [rows[0].id]
     );
 
     // Get regions
-    const [regions] = await pool.execute(
+    const regionResult = await pool.query(
       `SELECT r.id, r.name, r.slug FROM regions r
        JOIN article_regions ar ON r.id = ar.region_id
-       WHERE ar.article_id = ?`,
+       WHERE ar.article_id = $1`,
       [rows[0].id]
     );
 
-    return { ...rows[0], tags, regions };
+    return { ...rows[0], tags: tagResult.rows, regions: regionResult.rows };
   },
 
   // Featured articles
   async getFeatured(limit = 10) {
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.subtitle, a.image_url, a.thumbnail_url, a.truth_score,
               a.interaction_count, a.published_at,
               c.name as category_name, c.slug as category_slug,
@@ -79,9 +82,9 @@ const Article = {
        FROM articles a
        JOIN categories c ON a.category_id = c.id
        JOIN sources s ON a.source_id = s.id
-       WHERE a.is_featured = 1
+       WHERE a.is_featured = true
        ORDER BY a.published_at DESC
-       LIMIT ?`,
+       LIMIT $1`,
       [limit]
     );
     return rows;
@@ -89,7 +92,7 @@ const Article = {
 
   // Trending articles (by interaction count)
   async getTrending(limit = 10) {
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.subtitle, a.image_url, a.thumbnail_url, a.truth_score,
               a.is_verified, a.interaction_count, a.published_at,
               c.name as category_name,
@@ -98,9 +101,9 @@ const Article = {
        FROM articles a
        JOIN categories c ON a.category_id = c.id
        JOIN sources s ON a.source_id = s.id
-       WHERE a.published_at >= NOW() - INTERVAL 7 DAY
+       WHERE a.published_at >= NOW() - INTERVAL '7 days'
        ORDER BY a.interaction_count DESC
-       LIMIT ?`,
+       LIMIT $1`,
       [limit]
     );
     return rows;
@@ -108,14 +111,14 @@ const Article = {
 
   // Top Charts (ranked by interactions with formatted count)
   async getTopCharts(limit = 10) {
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.interaction_count, a.published_at, a.thumbnail_url,
               c.name as category_name
        FROM articles a
        JOIN categories c ON a.category_id = c.id
-       WHERE a.published_at >= NOW() - INTERVAL 30 DAY
+       WHERE a.published_at >= NOW() - INTERVAL '30 days'
        ORDER BY a.interaction_count DESC
-       LIMIT ?`,
+       LIMIT $1`,
       [limit]
     );
     return rows;
@@ -123,16 +126,16 @@ const Article = {
 
   // Morning Brief articles
   async getMorningBrief(limit = 10) {
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.summary, a.thumbnail_url, a.published_at,
               c.name as category_name, c.slug as category_slug,
               s.name as source_name, s.logo_url as source_logo
        FROM articles a
        JOIN categories c ON a.category_id = c.id
        JOIN sources s ON a.source_id = s.id
-       WHERE a.is_morning_brief = 1
+       WHERE a.is_morning_brief = true
        ORDER BY a.published_at DESC
-       LIMIT ?`,
+       LIMIT $1`,
       [limit]
     );
     return rows;
@@ -140,7 +143,7 @@ const Article = {
 
   // Developing Now
   async getDeveloping(limit = 10) {
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.subtitle, a.summary, a.image_url, a.thumbnail_url, a.truth_score,
               a.is_live, a.published_at,
               c.name as category_name,
@@ -148,9 +151,9 @@ const Article = {
        FROM articles a
        JOIN categories c ON a.category_id = c.id
        JOIN sources s ON a.source_id = s.id
-       WHERE a.is_developing = 1
+       WHERE a.is_developing = true
        ORDER BY a.published_at DESC
-       LIMIT ?`,
+       LIMIT $1`,
       [limit]
     );
     return rows;
@@ -158,7 +161,7 @@ const Article = {
 
   // Breaking / Live updates (Global Affairs Highlights)
   async getHighlights(limit = 5) {
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.subtitle, a.image_url, a.thumbnail_url, a.is_live,
               a.is_breaking, a.truth_score, a.published_at,
               c.name as category_name,
@@ -166,10 +169,10 @@ const Article = {
        FROM articles a
        JOIN categories c ON a.category_id = c.id
        JOIN sources s ON a.source_id = s.id
-       WHERE (a.is_breaking = 1 OR a.is_live = 1)
+       WHERE (a.is_breaking = true OR a.is_live = true)
          AND a.category_id = (SELECT id FROM categories WHERE slug = 'global-affairs')
        ORDER BY a.published_at DESC
-       LIMIT ?`,
+       LIMIT $1`,
       [limit]
     );
     return rows;
@@ -178,7 +181,7 @@ const Article = {
   // Articles by category
   async getByCategory(categorySlug, page = 1, limit = 20) {
     const offset = (page - 1) * limit;
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.subtitle, a.summary, a.image_url, a.thumbnail_url,
               a.truth_score, a.interaction_count, a.published_at,
               c.name as category_name,
@@ -186,24 +189,24 @@ const Article = {
        FROM articles a
        JOIN categories c ON a.category_id = c.id
        JOIN sources s ON a.source_id = s.id
-       WHERE c.slug = ?
+       WHERE c.slug = $1
        ORDER BY a.published_at DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT $2 OFFSET $3`,
       [categorySlug, limit, offset]
     );
 
-    const [countResult] = await pool.execute(
-      'SELECT COUNT(*) as total FROM articles a JOIN categories c ON a.category_id = c.id WHERE c.slug = ?',
+    const countResult = await pool.query(
+      'SELECT COUNT(*) as total FROM articles a JOIN categories c ON a.category_id = c.id WHERE c.slug = $1',
       [categorySlug]
     );
 
-    return { articles: rows, total: countResult[0].total, page, limit };
+    return { articles: rows, total: parseInt(countResult.rows[0].total), page, limit };
   },
 
   // Articles by source
   async getBySource(sourceSlug, page = 1, limit = 20) {
     const offset = (page - 1) * limit;
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.subtitle, a.summary, a.image_url, a.thumbnail_url,
               a.truth_score, a.interaction_count, a.published_at,
               c.name as category_name,
@@ -211,24 +214,24 @@ const Article = {
        FROM articles a
        JOIN categories c ON a.category_id = c.id
        JOIN sources s ON a.source_id = s.id
-       WHERE s.slug = ?
+       WHERE s.slug = $1
        ORDER BY a.published_at DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT $2 OFFSET $3`,
       [sourceSlug, limit, offset]
     );
 
-    const [countResult] = await pool.execute(
-      'SELECT COUNT(*) as total FROM articles a JOIN sources s ON a.source_id = s.id WHERE s.slug = ?',
+    const countResult = await pool.query(
+      'SELECT COUNT(*) as total FROM articles a JOIN sources s ON a.source_id = s.id WHERE s.slug = $1',
       [sourceSlug]
     );
 
-    return { articles: rows, total: countResult[0].total, page, limit };
+    return { articles: rows, total: parseInt(countResult.rows[0].total), page, limit };
   },
 
   // Articles by reporter
   async getByReporter(reporterSlug, page = 1, limit = 20) {
     const offset = (page - 1) * limit;
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.subtitle, a.summary, a.image_url, a.thumbnail_url,
               a.truth_score, a.published_at,
               c.name as category_name,
@@ -238,24 +241,24 @@ const Article = {
        JOIN categories c ON a.category_id = c.id
        JOIN sources s ON a.source_id = s.id
        JOIN reporters r ON a.reporter_id = r.id
-       WHERE r.slug = ?
+       WHERE r.slug = $1
        ORDER BY a.published_at DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT $2 OFFSET $3`,
       [reporterSlug, limit, offset]
     );
 
-    const [countResult] = await pool.execute(
-      'SELECT COUNT(*) as total FROM articles a JOIN reporters r ON a.reporter_id = r.id WHERE r.slug = ?',
+    const countResult = await pool.query(
+      'SELECT COUNT(*) as total FROM articles a JOIN reporters r ON a.reporter_id = r.id WHERE r.slug = $1',
       [reporterSlug]
     );
 
-    return { articles: rows, total: countResult[0].total, page, limit };
+    return { articles: rows, total: parseInt(countResult.rows[0].total), page, limit };
   },
 
   // Articles by region
   async getByRegion(regionSlug, page = 1, limit = 20) {
     const offset = (page - 1) * limit;
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.subtitle, a.summary, a.image_url, a.thumbnail_url,
               a.truth_score, a.interaction_count, a.published_at,
               c.name as category_name,
@@ -265,26 +268,26 @@ const Article = {
        JOIN sources s ON a.source_id = s.id
        JOIN article_regions ar ON a.id = ar.article_id
        JOIN regions reg ON ar.region_id = reg.id
-       WHERE reg.slug = ?
+       WHERE reg.slug = $1
        ORDER BY a.published_at DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT $2 OFFSET $3`,
       [regionSlug, limit, offset]
     );
 
-    const [countResult] = await pool.execute(
+    const countResult = await pool.query(
       `SELECT COUNT(*) as total FROM articles a
        JOIN article_regions ar ON a.id = ar.article_id
-       JOIN regions reg ON ar.region_id = reg.id WHERE reg.slug = ?`,
+       JOIN regions reg ON ar.region_id = reg.id WHERE reg.slug = $1`,
       [regionSlug]
     );
 
-    return { articles: rows, total: countResult[0].total, page, limit };
+    return { articles: rows, total: parseInt(countResult.rows[0].total), page, limit };
   },
 
   // Articles by tag
   async getByTag(tagSlug, page = 1, limit = 20) {
     const offset = (page - 1) * limit;
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.subtitle, a.summary, a.image_url, a.thumbnail_url,
               a.truth_score, a.published_at,
               c.name as category_name,
@@ -294,54 +297,43 @@ const Article = {
        JOIN sources s ON a.source_id = s.id
        JOIN article_tags at2 ON a.id = at2.article_id
        JOIN tags t ON at2.tag_id = t.id
-       WHERE t.slug = ?
+       WHERE t.slug = $1
        ORDER BY a.published_at DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT $2 OFFSET $3`,
       [tagSlug, limit, offset]
     );
 
-    const [countResult] = await pool.execute(
+    const countResult = await pool.query(
       `SELECT COUNT(*) as total FROM articles a
        JOIN article_tags at2 ON a.id = at2.article_id
-       JOIN tags t ON at2.tag_id = t.id WHERE t.slug = ?`,
+       JOIN tags t ON at2.tag_id = t.id WHERE t.slug = $1`,
       [tagSlug]
     );
 
-    return { articles: rows, total: countResult[0].total, page, limit };
+    return { articles: rows, total: parseInt(countResult.rows[0].total), page, limit };
   },
 
   // Full-text search
   async search({ q, scope, verified, category, page = 1, limit = 20 }) {
     const offset = (page - 1) * limit;
-    let where = 'WHERE MATCH(a.title, a.content, a.summary) AGAINST(? IN BOOLEAN MODE)';
-    const params = [q];
+    let where = `WHERE (a.title ILIKE $1 OR a.content ILIKE $1 OR a.summary ILIKE $1)`;
+    const searchPattern = `%${q}%`;
+    const params = [searchPattern];
+    let paramIndex = 2;
 
     if (verified) {
-      where += ' AND a.is_verified = 1';
+      where += ' AND a.is_verified = true';
     }
     if (category) {
-      where += ' AND c.slug = ?';
+      where += ` AND c.slug = $${paramIndex}`;
       params.push(category);
+      paramIndex++;
     }
 
-    const query = `
-      SELECT a.uuid, a.title, a.subtitle, a.summary, a.image_url, a.thumbnail_url,
-             a.truth_score, a.is_verified, a.published_at,
-             c.name as category_name, c.slug as category_slug,
-             s.name as source_name, s.logo_url as source_logo,
-             MATCH(a.title, a.content, a.summary) AGAINST(? IN BOOLEAN MODE) as relevance
-      FROM articles a
-      JOIN categories c ON a.category_id = c.id
-      JOIN sources s ON a.source_id = s.id
-      ${where}
-      ORDER BY relevance DESC
-      LIMIT ? OFFSET ?
-    `;
+    params.push(limit);
+    params.push(offset);
 
-    params.push(q); // for ORDER BY relevance
-    // Fix: the AGAINST in SELECT needs q again — handled by repeating in the query
-    // Actually let's simplify
-    const [rows] = await pool.execute(
+    const { rows } = await pool.query(
       `SELECT a.uuid, a.title, a.subtitle, a.summary, a.image_url, a.thumbnail_url,
               a.truth_score, a.is_verified, a.published_at,
               c.name as category_name, c.slug as category_slug,
@@ -351,8 +343,8 @@ const Article = {
        JOIN sources s ON a.source_id = s.id
        ${where}
        ORDER BY a.published_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      params
     );
 
     return { articles: rows, page, limit };
@@ -362,42 +354,45 @@ const Article = {
   async update(id, data) {
     const fields = [];
     const values = [];
+    let paramIndex = 1;
     const allowedFields = ['title', 'subtitle', 'content', 'summary', 'image_url', 'thumbnail_url',
       'category_id', 'source_id', 'reporter_id', 'truth_score', 'is_verified', 'is_featured',
       'is_breaking', 'is_developing', 'is_live', 'is_morning_brief'];
 
     for (const field of allowedFields) {
       if (data[field] !== undefined) {
-        fields.push(`${field} = ?`);
+        fields.push(`${field} = $${paramIndex++}`);
         values.push(data[field]);
       }
     }
 
     if (data.title) {
-      fields.push('slug = ?');
+      fields.push(`slug = $${paramIndex++}`);
       values.push(data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''));
     }
 
     if (fields.length > 0) {
       values.push(id);
-      await pool.execute(`UPDATE articles SET ${fields.join(', ')} WHERE id = ?`, values);
+      await pool.query(`UPDATE articles SET ${fields.join(', ')} WHERE id = $${paramIndex}`, values);
     }
 
     // Update tags
     if (data.tag_ids) {
-      await pool.execute('DELETE FROM article_tags WHERE article_id = ?', [id]);
+      await pool.query('DELETE FROM article_tags WHERE article_id = $1', [id]);
       if (data.tag_ids.length > 0) {
-        const tagValues = data.tag_ids.map(tid => [id, tid]);
-        await pool.query('INSERT INTO article_tags (article_id, tag_id) VALUES ?', [tagValues]);
+        for (const tid of data.tag_ids) {
+          await pool.query('INSERT INTO article_tags (article_id, tag_id) VALUES ($1, $2)', [id, tid]);
+        }
       }
     }
 
     // Update regions
     if (data.region_ids) {
-      await pool.execute('DELETE FROM article_regions WHERE article_id = ?', [id]);
+      await pool.query('DELETE FROM article_regions WHERE article_id = $1', [id]);
       if (data.region_ids.length > 0) {
-        const regionValues = data.region_ids.map(rid => [id, rid]);
-        await pool.query('INSERT INTO article_regions (article_id, region_id) VALUES ?', [regionValues]);
+        for (const rid of data.region_ids) {
+          await pool.query('INSERT INTO article_regions (article_id, region_id) VALUES ($1, $2)', [id, rid]);
+        }
       }
     }
 
@@ -405,17 +400,17 @@ const Article = {
   },
 
   async findById(id) {
-    const [rows] = await pool.execute('SELECT * FROM articles WHERE id = ?', [id]);
+    const { rows } = await pool.query('SELECT * FROM articles WHERE id = $1', [id]);
     return rows[0] || null;
   },
 
   async delete(id) {
-    await pool.execute('DELETE FROM articles WHERE id = ?', [id]);
+    await pool.query('DELETE FROM articles WHERE id = $1', [id]);
   },
 
   // Increment view count
   async incrementView(uuid) {
-    await pool.execute('UPDATE articles SET view_count = view_count + 1 WHERE uuid = ?', [uuid]);
+    await pool.query('UPDATE articles SET view_count = view_count + 1 WHERE uuid = $1', [uuid]);
   },
 };
 

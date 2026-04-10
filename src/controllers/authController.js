@@ -32,7 +32,8 @@ async function createGoogleUser({ email, name, avatarUrl }) {
       });
       break;
     } catch (err) {
-      if (err.code !== 'ER_DUP_ENTRY') {
+      // PostgreSQL unique violation code
+      if (err.code !== '23505') {
         throw err;
       }
     }
@@ -46,8 +47,8 @@ async function createGoogleUser({ email, name, avatarUrl }) {
     await User.updateProfile(createdUser.id, { avatar_url: avatarUrl });
   }
 
-  await pool.execute(
-    'UPDATE users SET is_verified = 1 WHERE id = ?',
+  await pool.query(
+    'UPDATE users SET is_verified = true WHERE id = $1',
     [createdUser.id]
   );
 
@@ -73,14 +74,14 @@ const authController = {
 
       // Store refresh token
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-      await pool.execute(
-        'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
+      await pool.query(
+        'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
         [user.id, refreshToken, expiresAt]
       );
 
       // Create default preferences
-      await pool.execute(
-        'INSERT INTO user_preferences (user_id) VALUES (?)',
+      await pool.query(
+        'INSERT INTO user_preferences (user_id) VALUES ($1)',
         [user.id]
       );
 
@@ -118,8 +119,8 @@ const authController = {
 
       // Store refresh token
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      await pool.execute(
-        'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
+      await pool.query(
+        'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
         [user.id, refreshToken, expiresAt]
       );
 
@@ -174,8 +175,8 @@ const authController = {
           avatarUrl: payload.picture,
         });
 
-        await pool.execute(
-          'INSERT INTO user_preferences (user_id) VALUES (?)',
+        await pool.query(
+          'INSERT INTO user_preferences (user_id) VALUES ($1)',
           [user.id]
         );
       }
@@ -184,8 +185,8 @@ const authController = {
       const refreshToken = generateRefreshToken(user);
 
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      await pool.execute(
-        'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
+      await pool.query(
+        'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
         [user.id, refreshToken, expiresAt]
       );
 
@@ -217,8 +218,8 @@ const authController = {
       const { refresh_token } = req.body;
 
       // Verify token exists in DB
-      const [rows] = await pool.execute(
-        'SELECT * FROM refresh_tokens WHERE token = ? AND expires_at > NOW()',
+      const { rows } = await pool.query(
+        'SELECT * FROM refresh_tokens WHERE token = $1 AND expires_at > NOW()',
         [refresh_token]
       );
 
@@ -232,7 +233,7 @@ const authController = {
         decoded = jwt.verify(refresh_token, process.env.JWT_SECRET);
       } catch (err) {
         // Remove invalid token
-        await pool.execute('DELETE FROM refresh_tokens WHERE token = ?', [refresh_token]);
+        await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [refresh_token]);
         return res.status(401).json({ success: false, message: 'Invalid refresh token' });
       }
 
@@ -242,14 +243,14 @@ const authController = {
       }
 
       // Rotate: delete old, create new
-      await pool.execute('DELETE FROM refresh_tokens WHERE token = ?', [refresh_token]);
+      await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [refresh_token]);
 
       const newAccessToken = generateAccessToken(user);
       const newRefreshToken = generateRefreshToken(user);
 
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      await pool.execute(
-        'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
+      await pool.query(
+        'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
         [user.id, newRefreshToken, expiresAt]
       );
 
@@ -269,7 +270,7 @@ const authController = {
   async logout(req, res, next) {
     try {
       const { refresh_token } = req.body;
-      await pool.execute('DELETE FROM refresh_tokens WHERE token = ?', [refresh_token]);
+      await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [refresh_token]);
       res.json({ success: true, message: 'Logged out successfully' });
     } catch (err) {
       next(err);

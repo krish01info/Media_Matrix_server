@@ -1,30 +1,20 @@
-# Build stage
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci --only=production
-
-# Production stage
+# 1. Use the official Node.js image as the base
 FROM node:20-alpine
 
+# 2. Create a folder inside the container for our code
 WORKDIR /app
 
-# Create non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# 3. Copy the package files first (to speed up builds)
+COPY package*.json ./
 
-COPY --from=builder /app/node_modules ./node_modules
+# 4. Install the dependencies we added (Express, Redis, etc.)
+RUN npm install
+
+# 5. Copy the rest of your server code
 COPY . .
 
-# Create uploads directory
-RUN mkdir -p uploads && chown -R appuser:appgroup /app
-
-USER appuser
-
+# 6. Tell Docker the app runs on port 3000
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
-
-CMD ["node", "src/server.js"]
+# 7. The command to start your server
+CMD ["npm", "run", "dev"]
