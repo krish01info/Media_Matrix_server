@@ -1,29 +1,4 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:16-alpine
-    container_name: media_matrix_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-rootpassword}
-      POSTGRES_DB: ${DB_NAME:-media_matrix}
-    ports:
-      - '${DB_PORT:-5432}:5432'
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
-    networks:
-      - media_matrix_net
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-postgres}']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # Redis Cache
   redis:
     image: redis:7-alpine
@@ -53,10 +28,10 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DB_HOST=postgres
+      - DB_HOST=postgres_db_Media_Matrix_final_1
       - DB_PORT=5432
       - DB_USER=${DB_USER:-postgres}
-      - DB_PASSWORD=${DB_PASSWORD:-rootpassword}
+      - DB_PASSWORD=${DB_PASSWORD:-newpassword}
       - DB_NAME=${DB_NAME:-media_matrix}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -67,14 +42,13 @@ services:
       - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
       - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
       - ./uploads:/app/uploads
     networks:
       - media_matrix_net
+      - db_default
 
   # Nginx Reverse Proxy
   nginx:
@@ -91,9 +65,10 @@ services:
       - media_matrix_net
 
 volumes:
-  postgres_data:
   redis_data:
 
 networks:
   media_matrix_net:
     driver: bridge
+  db_default:
+    external: true

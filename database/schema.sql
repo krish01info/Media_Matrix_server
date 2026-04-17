@@ -1,159 +1,210 @@
--- ============================================================
--- Media Matrix — Complete MySQL Schema
+﻿-- ============================================================
+-- Media Matrix Final Complete PostgreSQL Schema
 -- ============================================================
 
-CREATE DATABASE IF NOT EXISTS media_matrix
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-USE media_matrix;
+-- Note: Connect to your database before running this script
+-- e.g., using: \c Media_matrix_final_1
 
 -- ============================================================
 -- 1. users
 -- ============================================================
 CREATE TABLE IF NOT EXISTS users (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  uuid CHAR(36) NOT NULL UNIQUE,
+  id SERIAL PRIMARY KEY,
+  uuid UUID NOT NULL UNIQUE,
   username VARCHAR(50) NOT NULL UNIQUE,
   email VARCHAR(255) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
-  avatar_url VARCHAR(500) DEFAULT NULL,
-  is_verified TINYINT(1) DEFAULT 0,
+  avatar_url VARCHAR(500),
+  is_verified BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_users_uuid (uuid),
-  INDEX idx_users_email (email)
-) ENGINE=InnoDB;
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT users_email_idx UNIQUE (email),
+  CONSTRAINT users_uuid_idx UNIQUE (uuid)
+);
+
+-- Optional: if you want explicit indexes (though UNIQUE already creates them)
+CREATE INDEX idx_users_uuid ON users (uuid);
+CREATE INDEX idx_users_email ON users (email);
+
+-- To automatically update 'updated_at' on row modification, use a trigger:
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+   NEW.updated_at = CURRENT_TIMESTAMP;
+   RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
+CREATE TRIGGER update_users_updated_at
+BEFORE UPDATE ON users
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
 
 -- ============================================================
 -- 2. categories
 -- ============================================================
 CREATE TABLE IF NOT EXISTS categories (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL UNIQUE,
   slug VARCHAR(100) NOT NULL UNIQUE,
-  description TEXT DEFAULT NULL,
-  icon_url VARCHAR(500) DEFAULT NULL,
-  gradient_start VARCHAR(7) DEFAULT NULL,
-  gradient_end VARCHAR(7) DEFAULT NULL,
+  description TEXT,
+  icon_url VARCHAR(500),
+  gradient_start VARCHAR(7),
+  gradient_end VARCHAR(7),
   display_order INT DEFAULT 0,
-  is_active TINYINT(1) DEFAULT 1,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_categories_slug (slug),
-  INDEX idx_categories_order (display_order)
-) ENGINE=InnoDB;
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes
+CREATE INDEX idx_categories_slug ON categories (slug);
+CREATE INDEX idx_categories_order ON categories (display_order);
+
 
 -- ============================================================
 -- 3. sources
 -- ============================================================
 CREATE TABLE IF NOT EXISTS sources (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   name VARCHAR(200) NOT NULL,
-  short_name VARCHAR(50) DEFAULT NULL,
+  short_name VARCHAR(50),
   slug VARCHAR(100) NOT NULL UNIQUE,
-  logo_url VARCHAR(500) DEFAULT NULL,
-  website_url VARCHAR(500) DEFAULT NULL,
-  description TEXT DEFAULT NULL,
-  is_verified TINYINT(1) DEFAULT 0,
-  trust_score DECIMAL(5,2) DEFAULT 0.00,
-  has_radio TINYINT(1) DEFAULT 0,
-  has_newspaper TINYINT(1) DEFAULT 0,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_sources_slug (slug)
-) ENGINE=InnoDB;
+  logo_url VARCHAR(500),
+  website_url VARCHAR(500),
+  description TEXT,
+  is_verified BOOLEAN DEFAULT FALSE,
+  trust_score NUMERIC(5,2) DEFAULT 0.00,
+  has_radio BOOLEAN DEFAULT FALSE,
+  has_newspaper BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes
+CREATE INDEX idx_sources_slug ON sources (slug);
+
 
 -- ============================================================
 -- 4. reporters
 -- ============================================================
 CREATE TABLE IF NOT EXISTS reporters (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   name VARCHAR(200) NOT NULL,
   slug VARCHAR(100) NOT NULL UNIQUE,
-  title VARCHAR(200) DEFAULT NULL,
-  bio TEXT DEFAULT NULL,
-  avatar_url VARCHAR(500) DEFAULT NULL,
-  truth_score DECIMAL(5,2) DEFAULT 0.00,
-  is_verified TINYINT(1) DEFAULT 0,
-  is_independent TINYINT(1) DEFAULT 0,
-  source_id INT DEFAULT NULL,
+  title VARCHAR(200),
+  bio TEXT,
+  avatar_url VARCHAR(500),
+  truth_score NUMERIC(5,2) DEFAULT 0.00,
+  is_verified BOOLEAN DEFAULT FALSE,
+  is_independent BOOLEAN DEFAULT FALSE,
+  source_id INT,
   total_articles INT DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_reporters_slug (slug),
-  INDEX idx_reporters_independent (is_independent),
-  FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
+  CONSTRAINT fk_reporters_source FOREIGN KEY (source_id)
+    REFERENCES sources(id)
+    ON DELETE SET NULL
+);
+
+-- Indexes
+CREATE INDEX idx_reporters_slug ON reporters (slug);
+CREATE INDEX idx_reporters_independent ON reporters (is_independent);
+
 
 -- ============================================================
 -- 5. regions
 -- ============================================================
 CREATE TABLE IF NOT EXISTS regions (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL UNIQUE,
   slug VARCHAR(100) NOT NULL UNIQUE,
-  parent_id INT DEFAULT NULL,
-  latitude DECIMAL(10,7) DEFAULT NULL,
-  longitude DECIMAL(10,7) DEFAULT NULL,
+  parent_id INT,
+  latitude NUMERIC(10,7),
+  longitude NUMERIC(10,7),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_regions_slug (slug),
-  FOREIGN KEY (parent_id) REFERENCES regions(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
+  CONSTRAINT fk_regions_parent FOREIGN KEY (parent_id)
+    REFERENCES regions(id)
+    ON DELETE SET NULL
+);
+
+-- Indexes
+CREATE INDEX idx_regions_slug ON regions (slug);
+
 
 -- ============================================================
 -- 6. tags
 -- ============================================================
 CREATE TABLE IF NOT EXISTS tags (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   name VARCHAR(100) NOT NULL UNIQUE,
   slug VARCHAR(100) NOT NULL UNIQUE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_tags_slug (slug)
-) ENGINE=InnoDB;
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes
+CREATE INDEX idx_tags_slug ON tags (slug);
+
 
 -- ============================================================
 -- 7. articles
 -- ============================================================
 CREATE TABLE IF NOT EXISTS articles (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  uuid CHAR(36) NOT NULL UNIQUE,
+  id SERIAL PRIMARY KEY,
+  uuid UUID NOT NULL UNIQUE,
   title VARCHAR(500) NOT NULL,
-  subtitle VARCHAR(500) DEFAULT NULL,
+  subtitle VARCHAR(500),
   slug VARCHAR(500) NOT NULL,
-  content LONGTEXT NOT NULL,
-  summary TEXT DEFAULT NULL,
-  image_url VARCHAR(500) DEFAULT NULL,
-  thumbnail_url VARCHAR(500) DEFAULT NULL,
+  content TEXT NOT NULL,
+  summary TEXT,
+  image_url VARCHAR(500),
+  thumbnail_url VARCHAR(500),
   category_id INT NOT NULL,
   source_id INT NOT NULL,
-  reporter_id INT DEFAULT NULL,
-  truth_score DECIMAL(5,2) DEFAULT 0.00,
-  is_verified TINYINT(1) DEFAULT 0,
-  is_featured TINYINT(1) DEFAULT 0,
-  is_breaking TINYINT(1) DEFAULT 0,
-  is_developing TINYINT(1) DEFAULT 0,
-  is_live TINYINT(1) DEFAULT 0,
-  is_morning_brief TINYINT(1) DEFAULT 0,
+  reporter_id INT,
+  truth_score NUMERIC(5,2) DEFAULT 0.00,
+  is_verified BOOLEAN DEFAULT FALSE,
+  is_featured BOOLEAN DEFAULT FALSE,
+  is_breaking BOOLEAN DEFAULT FALSE,
+  is_developing BOOLEAN DEFAULT FALSE,
+  is_live BOOLEAN DEFAULT FALSE,
+  is_morning_brief BOOLEAN DEFAULT FALSE,
   interaction_count BIGINT DEFAULT 0,
   view_count BIGINT DEFAULT 0,
   share_count BIGINT DEFAULT 0,
-  published_at TIMESTAMP NULL,
+  published_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_articles_uuid (uuid),
-  INDEX idx_articles_slug (slug),
-  INDEX idx_articles_category (category_id),
-  INDEX idx_articles_source (source_id),
-  INDEX idx_articles_reporter (reporter_id),
-  INDEX idx_articles_featured (is_featured),
-  INDEX idx_articles_breaking (is_breaking),
-  INDEX idx_articles_developing (is_developing),
-  INDEX idx_articles_morning_brief (is_morning_brief),
-  INDEX idx_articles_published (published_at),
-  INDEX idx_articles_interactions (interaction_count DESC),
-  FULLTEXT INDEX ft_articles_search (title, content, summary),
-  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE RESTRICT,
-  FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE RESTRICT,
-  FOREIGN KEY (reporter_id) REFERENCES reporters(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_articles_category FOREIGN KEY (category_id)
+    REFERENCES categories(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_articles_source FOREIGN KEY (source_id)
+    REFERENCES sources(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_articles_reporter FOREIGN KEY (reporter_id)
+    REFERENCES reporters(id) ON DELETE SET NULL
+);
+
+DROP TRIGGER IF EXISTS update_articles_updated_at ON articles;
+CREATE TRIGGER update_articles_updated_at
+BEFORE UPDATE ON articles
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+-- Indexes
+CREATE INDEX idx_articles_uuid ON articles (uuid);
+CREATE INDEX idx_articles_slug ON articles (slug);
+CREATE INDEX idx_articles_category ON articles (category_id);
+CREATE INDEX idx_articles_source ON articles (source_id);
+CREATE INDEX idx_articles_reporter ON articles (reporter_id);
+CREATE INDEX idx_articles_featured ON articles (is_featured);
+CREATE INDEX idx_articles_breaking ON articles (is_breaking);
+CREATE INDEX idx_articles_developing ON articles (is_developing);
+CREATE INDEX idx_articles_morning_brief ON articles (is_morning_brief);
+CREATE INDEX idx_articles_published ON articles (published_at);
+CREATE INDEX idx_articles_interactions ON articles (interaction_count DESC);
+
+-- Full-text search index (PostgreSQL uses GIN with tsvector)
+CREATE INDEX ft_articles_search ON articles
+  USING GIN (to_tsvector('english', title || ' ' || content || ' ' || COALESCE(summary, '')));
+
 
 -- ============================================================
 -- 8. article_tags (many-to-many)
@@ -162,9 +213,12 @@ CREATE TABLE IF NOT EXISTS article_tags (
   article_id INT NOT NULL,
   tag_id INT NOT NULL,
   PRIMARY KEY (article_id, tag_id),
-  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
-  FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+  CONSTRAINT fk_article_tags_article FOREIGN KEY (article_id)
+    REFERENCES articles(id) ON DELETE CASCADE,
+  CONSTRAINT fk_article_tags_tag FOREIGN KEY (tag_id)
+    REFERENCES tags(id) ON DELETE CASCADE
+);
+
 
 -- ============================================================
 -- 9. article_regions (many-to-many)
@@ -173,79 +227,100 @@ CREATE TABLE IF NOT EXISTS article_regions (
   article_id INT NOT NULL,
   region_id INT NOT NULL,
   PRIMARY KEY (article_id, region_id),
-  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
-  FOREIGN KEY (region_id) REFERENCES regions(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+  CONSTRAINT fk_article_regions_article FOREIGN KEY (article_id)
+    REFERENCES articles(id) ON DELETE CASCADE,
+  CONSTRAINT fk_article_regions_region FOREIGN KEY (region_id)
+    REFERENCES regions(id) ON DELETE CASCADE
+);
 
 -- ============================================================
 -- 10. newspapers
 -- ============================================================
 CREATE TABLE IF NOT EXISTS newspapers (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   source_id INT NOT NULL,
   title VARCHAR(300) NOT NULL,
   cover_image_url VARCHAR(500) NOT NULL,
-  pdf_url VARCHAR(500) DEFAULT NULL,
+  pdf_url VARCHAR(500),
   edition_date DATE NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_newspapers_date (edition_date),
-  FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+  CONSTRAINT fk_newspapers_source FOREIGN KEY (source_id)
+    REFERENCES sources(id)
+    ON DELETE CASCADE
+);
+
+-- Indexes
+CREATE INDEX idx_newspapers_date ON newspapers (edition_date);
 
 -- ============================================================
 -- 11. radio_streams
 -- ============================================================
 CREATE TABLE IF NOT EXISTS radio_streams (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   source_id INT NOT NULL,
   title VARCHAR(300) NOT NULL,
-  description TEXT DEFAULT NULL,
+  description TEXT,
   stream_url VARCHAR(500) NOT NULL,
-  thumbnail_url VARCHAR(500) DEFAULT NULL,
-  is_live TINYINT(1) DEFAULT 0,
-  is_high_quality TINYINT(1) DEFAULT 0,
+  thumbnail_url VARCHAR(500),
+  is_live BOOLEAN DEFAULT FALSE,
+  is_high_quality BOOLEAN DEFAULT FALSE,
   listener_count INT DEFAULT 0,
   display_order INT DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_radio_live (is_live),
-  INDEX idx_radio_order (display_order),
-  FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+  CONSTRAINT fk_radio_streams_source FOREIGN KEY (source_id)
+    REFERENCES sources(id)
+    ON DELETE CASCADE
+);
+
+-- Indexes
+CREATE INDEX idx_radio_live ON radio_streams (is_live);
+CREATE INDEX idx_radio_order ON radio_streams (display_order);
+
 
 -- ============================================================
 -- 12. podcasts
 -- ============================================================
 CREATE TABLE IF NOT EXISTS podcasts (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   source_id INT NOT NULL,
   title VARCHAR(300) NOT NULL,
-  description TEXT DEFAULT NULL,
+  description TEXT,
   audio_url VARCHAR(500) NOT NULL,
-  thumbnail_url VARCHAR(500) DEFAULT NULL,
-  duration_seconds INT DEFAULT NULL,
-  episode_number INT DEFAULT NULL,
-  published_at TIMESTAMP NULL,
+  thumbnail_url VARCHAR(500),
+  duration_seconds INT,
+  episode_number INT,
+  published_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_podcasts_published (published_at),
-  FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+  CONSTRAINT fk_podcasts_source FOREIGN KEY (source_id)
+    REFERENCES sources(id)
+    ON DELETE CASCADE
+);
+
+-- Indexes
+CREATE INDEX idx_podcasts_published ON podcasts (published_at);
+
 
 -- ============================================================
 -- 13. trending_topics
 -- ============================================================
 CREATE TABLE IF NOT EXISTS trending_topics (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   title VARCHAR(300) NOT NULL,
   slug VARCHAR(300) NOT NULL,
   engagement_score BIGINT DEFAULT 0,
-  engagement_label VARCHAR(100) DEFAULT NULL,
-  region_id INT DEFAULT NULL,
-  is_active TINYINT(1) DEFAULT 1,
+  engagement_label VARCHAR(100),
+  region_id INT,
+  is_active BOOLEAN DEFAULT TRUE,
   trended_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_trending_active (is_active),
-  INDEX idx_trending_score (engagement_score DESC),
-  FOREIGN KEY (region_id) REFERENCES regions(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
+  CONSTRAINT fk_trending_region FOREIGN KEY (region_id)
+    REFERENCES regions(id)
+    ON DELETE SET NULL
+);
+
+-- Indexes
+CREATE INDEX idx_trending_active ON trending_topics (is_active);
+CREATE INDEX idx_trending_score ON trending_topics (engagement_score DESC);
+
 
 -- ============================================================
 -- 14. trending_topic_articles
@@ -254,126 +329,179 @@ CREATE TABLE IF NOT EXISTS trending_topic_articles (
   topic_id INT NOT NULL,
   article_id INT NOT NULL,
   PRIMARY KEY (topic_id, article_id),
-  FOREIGN KEY (topic_id) REFERENCES trending_topics(id) ON DELETE CASCADE,
-  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+  CONSTRAINT fk_trending_topic_articles_topic FOREIGN KEY (topic_id)
+    REFERENCES trending_topics(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_trending_topic_articles_article FOREIGN KEY (article_id)
+    REFERENCES articles(id)
+    ON DELETE CASCADE
+);
+
 
 -- ============================================================
 -- 15. regional_charts
 -- ============================================================
 CREATE TABLE IF NOT EXISTS regional_charts (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  `rank` INT NOT NULL,
+  id SERIAL PRIMARY KEY,
+  rank INT NOT NULL,
   title VARCHAR(300) NOT NULL,
-  metric_label VARCHAR(200) DEFAULT NULL,
+  metric_label VARCHAR(200),
   region_id INT NOT NULL,
-  article_id INT DEFAULT NULL,
+  article_id INT,
   chart_date DATE NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_charts_region_date (region_id, chart_date),
-  INDEX idx_charts_rank (chart_date, `rank`),
-  FOREIGN KEY (region_id) REFERENCES regions(id) ON DELETE CASCADE,
-  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
+  CONSTRAINT fk_charts_region FOREIGN KEY (region_id)
+    REFERENCES regions(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_charts_article FOREIGN KEY (article_id)
+    REFERENCES articles(id)
+    ON DELETE SET NULL
+);
+
+-- Indexes
+CREATE INDEX idx_charts_region_date ON regional_charts (region_id, chart_date);
+CREATE INDEX idx_charts_rank ON regional_charts (chart_date, rank);
+
 
 -- ============================================================
 -- 16. world_map_insights
 -- ============================================================
 CREATE TABLE IF NOT EXISTS world_map_insights (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   title VARCHAR(300) NOT NULL,
-  description TEXT DEFAULT NULL,
-  latitude DECIMAL(10,7) NOT NULL,
-  longitude DECIMAL(10,7) NOT NULL,
-  icon_type VARCHAR(50) DEFAULT NULL,
-  article_id INT DEFAULT NULL,
-  is_active TINYINT(1) DEFAULT 1,
+  description TEXT,
+  latitude NUMERIC(10,7) NOT NULL,
+  longitude NUMERIC(10,7) NOT NULL,
+  icon_type VARCHAR(50),
+  article_id INT,
+  is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_map_active (is_active),
-  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
+  CONSTRAINT fk_map_insights_article FOREIGN KEY (article_id)
+    REFERENCES articles(id)
+    ON DELETE SET NULL
+);
+
+-- Indexes
+CREATE INDEX idx_map_active ON world_map_insights (is_active);
+
 
 -- ============================================================
 -- 17. user_bookmarks
 -- ============================================================
 CREATE TABLE IF NOT EXISTS user_bookmarks (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   user_id INT NOT NULL,
   article_id INT NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_user_bookmark (user_id, article_id),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+  CONSTRAINT uq_user_bookmark UNIQUE (user_id, article_id),
+  CONSTRAINT fk_bookmarks_user FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_bookmarks_article FOREIGN KEY (article_id)
+    REFERENCES articles(id)
+    ON DELETE CASCADE
+);
+
 
 -- ============================================================
 -- 18. user_reading_history
 -- ============================================================
 CREATE TABLE IF NOT EXISTS user_reading_history (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   user_id INT NOT NULL,
   article_id INT NOT NULL,
   read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  read_duration_sec INT DEFAULT NULL,
-  INDEX idx_history_user (user_id),
-  INDEX idx_history_read (read_at),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+  read_duration_sec INT,
+  CONSTRAINT fk_history_user FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_history_article FOREIGN KEY (article_id)
+    REFERENCES articles(id)
+    ON DELETE CASCADE
+);
+
+-- Indexes
+CREATE INDEX idx_history_user ON user_reading_history (user_id);
+CREATE INDEX idx_history_read ON user_reading_history (read_at);
+
 
 -- ============================================================
 -- 19. user_preferences
 -- ============================================================
 CREATE TABLE IF NOT EXISTS user_preferences (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   user_id INT NOT NULL UNIQUE,
-  preferred_categories JSON DEFAULT NULL,
-  preferred_regions JSON DEFAULT NULL,
-  preferred_sources JSON DEFAULT NULL,
-  notification_enabled TINYINT(1) DEFAULT 1,
-  high_quality_audio TINYINT(1) DEFAULT 0,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+  preferred_categories JSONB,
+  preferred_regions JSONB,
+  preferred_sources JSONB,
+  notification_enabled BOOLEAN DEFAULT TRUE,
+  high_quality_audio BOOLEAN DEFAULT FALSE,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_preferences_user FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE CASCADE
+);
+
+DROP TRIGGER IF EXISTS update_user_preferences_updated_at ON user_preferences;
+CREATE TRIGGER update_user_preferences_updated_at
+BEFORE UPDATE ON user_preferences
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
 
 -- ============================================================
 -- 20. refresh_tokens
 -- ============================================================
 CREATE TABLE IF NOT EXISTS refresh_tokens (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   user_id INT NOT NULL,
   token VARCHAR(500) NOT NULL UNIQUE,
   expires_at TIMESTAMP NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_refresh_token (token),
-  INDEX idx_refresh_user (user_id),
-  INDEX idx_refresh_expires (expires_at),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+  CONSTRAINT fk_refresh_user FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE CASCADE
+);
+
+-- Indexes
+CREATE INDEX idx_refresh_token ON refresh_tokens (token);
+CREATE INDEX idx_refresh_user ON refresh_tokens (user_id);
+CREATE INDEX idx_refresh_expires ON refresh_tokens (expires_at);
+
 
 -- ============================================================
 -- 21. compare_coverages
 -- ============================================================
 CREATE TABLE IF NOT EXISTS compare_coverages (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   topic_title VARCHAR(300) NOT NULL,
-  is_active TINYINT(1) DEFAULT 1,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_compare_active (is_active)
-) ENGINE=InnoDB;
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes
+CREATE INDEX idx_compare_active ON compare_coverages (is_active);
+
 
 -- ============================================================
 -- 22. compare_coverage_items
 -- ============================================================
 CREATE TABLE IF NOT EXISTS compare_coverage_items (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id SERIAL PRIMARY KEY,
   compare_id INT NOT NULL,
   source_id INT NOT NULL,
   headline VARCHAR(500) NOT NULL,
-  stance_label VARCHAR(100) DEFAULT NULL,
-  image_url VARCHAR(500) DEFAULT NULL,
-  article_id INT DEFAULT NULL,
-  FOREIGN KEY (compare_id) REFERENCES compare_coverages(id) ON DELETE CASCADE,
-  FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE,
-  FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
+  stance_label VARCHAR(100),
+  image_url VARCHAR(500),
+  article_id INT,
+  CONSTRAINT fk_compare_items_compare FOREIGN KEY (compare_id)
+    REFERENCES compare_coverages(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_compare_items_source FOREIGN KEY (source_id)
+    REFERENCES sources(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_compare_items_article FOREIGN KEY (article_id)
+    REFERENCES articles(id)
+    ON DELETE SET NULL
+);
+
